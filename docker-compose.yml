@@ -1,0 +1,62 @@
+version: '3.8'
+services:
+  app:
+    build: .
+    image: git-analytics-node:local
+    ports:
+      - '3000:3000'
+    environment:
+      - WEBHOOK_PATH=${WEBHOOK_PATH}
+      - ES_HOST=${ES_HOST}
+      - ES_USERNAME=${ES_USERNAME}
+      - ES_PASSWORD=${ES_PASSWORD}
+      - ES_INDEX_BASE=${ES_INDEX_BASE}
+      - PORT=${PORT}
+      - ADDRESS=${ADDRESS}
+    depends_on:
+      - elasticsearch
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.1.0
+    restart: always
+    environment:
+      - 'ES_JAVA_OPTS=-Xms1g -Xmx2g'
+      - discovery.type=single-node
+      - xpack.security.http.ssl.enabled=false
+      - xpack.security.enabled=true
+      - ELASTIC_PASSWORD=${ES_SUPERADMIN_PASSWORD}
+    volumes:
+      - ./volumes/elasticsearch_data:/usr/share/elasticsearch/data
+    ports:
+      - 0.0.0.0:9200:9200
+    networks:
+      default:
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.1.0
+    restart: always
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - ELASTICSEARCH_USERNAME=kibana_system
+      - ELASTICSEARCH_PASSWORD=${ES_KIBANA_PASSWORD}
+    volumes:
+      - ./volumes/kibana_data:/usr/share/kibana/data
+    ports:
+      - 0.0.0.0:5601:5601
+    depends_on:
+      - elasticsearch
+    networks:
+      default:
+
+  init:
+    image: appropriate/curl
+    restart: on-failure
+    depends_on:
+      - elasticsearch
+    entrypoint: [sh, -c]
+    command:
+      - |
+        until curl -u elastic:${ES_SUPERADMIN_PASSWORD} http://elasticsearch:9200  > /dev/null; do sleep 1; done &&
+        curl -u elastic:${ES_SUPERADMIN_PASSWORD} -v -X  POST -H "Content-Type:application/json" "http://elasticsearch:9200/_security/user/kibana_system/_password" -d '{"password":"${ES_KIBANA_PASSWORD}"}'
+    networks:
+      default:
